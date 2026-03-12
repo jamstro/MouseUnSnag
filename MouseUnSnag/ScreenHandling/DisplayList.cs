@@ -91,17 +91,70 @@ namespace MouseUnSnag.ScreenHandling
         /// <returns></returns>
         public Display JumpScreen(Point mouse, Rectangle curScreen)
         {
-            var candidates = ScreensInDirection(GeometryUtil.OutsideDirection(curScreen, mouse), curScreen);
-            Display jumpScreen = null;
-            var minDist = double.PositiveInfinity;
-            foreach (var candidate in candidates)
+            var dir = GeometryUtil.OutsideDirection(curScreen, mouse);
+
+            // Special logic for rightward movement with no direct neighbor (gap)
+            if (dir.X == 1)
             {
-                var dist = GeometryUtil.Magnitude(GeometryUtil.OutsideDistance(candidate.Bounds, mouse));
-                if (dist < minDist) {
-                    minDist = dist;
-                    jumpScreen = candidate;
+                int tolerance = 100; // adjust as needed for your gap
+                var rightScreens = All
+                    .Where(d => d.Bounds.Left >= curScreen.Right - tolerance)
+                    .ToList();
+
+                var overlapping = rightScreens
+                    .Where(d => mouse.Y < d.Bounds.Bottom && mouse.Y >= d.Bounds.Top)
+                    .ToList();
+
+                if (overlapping.Count > 0)
+                {
+                    return overlapping
+                        .OrderBy(d => Math.Abs(mouse.Y - (d.Bounds.Top + d.Bounds.Height / 2)))
+                        .First();
+                }
+                else if (rightScreens.Count > 0)
+                {
+                    return rightScreens
+                        .OrderBy(d => Math.Min(Math.Abs(mouse.Y - d.Bounds.Top), Math.Abs(mouse.Y - d.Bounds.Bottom)))
+                        .First();
                 }
             }
+
+            // Special logic for leftward movement with no direct neighbor (gap)
+            if (dir.X == -1)
+            {
+                int tolerance = 100; // adjust as needed for your gap
+                var leftScreens = All
+                    .Where(d => d.Bounds.Right <= curScreen.Left + tolerance)
+                    .ToList();
+
+                var overlapping = leftScreens
+                    .Where(d => mouse.Y < d.Bounds.Bottom && mouse.Y >= d.Bounds.Top)
+                    .ToList();
+
+                if (overlapping.Count > 0)
+                {
+                    return overlapping
+                        .OrderBy(d => Math.Abs(mouse.Y - (d.Bounds.Top + d.Bounds.Height / 2)))
+                        .First();
+                }
+                else if (leftScreens.Count > 0)
+                {
+                    return leftScreens
+                        .OrderBy(d => Math.Min(Math.Abs(mouse.Y - d.Bounds.Top), Math.Abs(mouse.Y - d.Bounds.Bottom)))
+                        .First();
+                }
+            }
+
+            // Default adjacency and fallback logic
+            var candidates = ScreensInDirection(dir, curScreen).ToList();
+            if (candidates.Count == 0) return null;
+
+            Display jumpScreen = candidates
+                .OrderBy(d => dir.X != 0
+                    ? Math.Abs(mouse.Y - d.Bounds.Top)
+                    : Math.Abs(mouse.X - d.Bounds.Left))
+                .First();
+
             return jumpScreen;
         }
 
@@ -120,20 +173,32 @@ namespace MouseUnSnag.ScreenHandling
             if (dir.X == 0)
                 return All[0];
 
-            // Find closest Left- or Right-most screen, in Y direction.
-            var distClosest = int.MaxValue;
-            var screensToCheck = (dir.X == 1 ? LeftMost : RightMost);
-            var ws = screensToCheck.FirstOrDefault() ?? All[0]; 
-            foreach (var s in screensToCheck)
-            {
-                var dist = Math.Abs(GeometryUtil.OutsideYDistance(s.Bounds, cursor));
-                if (dist >= distClosest)
-                    continue;
+            int tolerance = 100; // adjust as needed for your gap
+            var screensToCheck = (dir.X == 1 ? LeftMost : RightMost)
+                .Where(s => s.Bounds != WhichScreen(cursor)?.Bounds) // Exclude current screen
+                .ToList();
 
-                distClosest = dist;
-                ws = s;
+            // Prefer screens whose vertical region overlaps the mouse Y
+            var overlapping = screensToCheck
+                .Where(s => cursor.Y < s.Bounds.Bottom && cursor.Y >= s.Bounds.Top)
+                .ToList();
+
+            if (overlapping.Count > 0)
+            {
+                return overlapping
+                    .OrderBy(s => Math.Abs(cursor.Y - (s.Bounds.Top + s.Bounds.Height / 2)))
+                    .First();
             }
-            return ws;
+            else if (screensToCheck.Count > 0)
+            {
+                // Fallback: pick the screen whose vertical edge is closest to the mouse Y
+                return screensToCheck
+                    .OrderBy(s => Math.Min(Math.Abs(cursor.Y - s.Bounds.Top), Math.Abs(cursor.Y - s.Bounds.Bottom)))
+                    .First();
+            }
+
+            // Fallback: return the first screen (should not happen)
+            return All.FirstOrDefault(s => s.Bounds != WhichScreen(cursor)?.Bounds) ?? All[0];
         }
 
 
